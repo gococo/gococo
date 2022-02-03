@@ -2,12 +2,12 @@ package cache
 
 import (
 	"bufio"
-	"crypto/md5"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 
 	"github.com/gococo/gococo/pkg/log"
@@ -15,13 +15,15 @@ import (
 
 const (
 	CACHE_PATH   = ".gococo"
-	CACHE_DIGEST = "digest.md5"
+	CACHE_DIGEST = "digest.modtime"
 )
 
+// BuildCache skip copying if files not changed,
+// it also suggests if needs rebuilt
 type BuildCache struct {
-	oldDigest   map[string]string
-	newDigest   map[string]string
-	isNewDigest bool
+	oldMod              map[string]int64
+	newMod              map[string]int64
+	isCacheNeedsRefresh bool
 
 	basePath        string
 	cachePath       string
@@ -36,8 +38,8 @@ func NewBuildCache(base string, opts ...Option) (*BuildCache, error) {
 	}
 
 	bc := &BuildCache{
-		oldDigest:   make(map[string]string),
-		newDigest:   make(map[string]string),
+		oldMod:      make(map[string]int64),
+		newMod:      make(map[string]int64),
 		basePath:    base,
 		skipPattern: make(map[string]struct{}),
 	}
@@ -57,7 +59,7 @@ func NewBuildCache(base string, opts ...Option) (*BuildCache, error) {
 	_, err := os.Lstat(bc.cacheDigestFile)
 	if os.IsNotExist(err) {
 		// digest file needs update
-		bc.isNewDigest = true
+		bc.isCacheNeedsRefresh = true
 	} else if err != nil {
 		return nil, err
 	} else {
@@ -78,7 +80,11 @@ func NewBuildCache(base string, opts ...Option) (*BuildCache, error) {
 			if len(line) != 2 {
 				return nil, fmt.Errorf("digest file bad format")
 			}
-			bc.oldDigest[line[0]] = line[1]
+			modTime, err := strconv.ParseInt(line[1], 10, 64)
+			if err != nil {
+				return nil, err
+			}
+			bc.oldMod[line[0]] = modTime
 		}
 	}
 
@@ -100,38 +106,116 @@ func (bc *BuildCache) Cache() (err error) {
 		return err
 	}
 
-	// copy project to tmp directory and caclulate md5
-	tmp := filepath.Join(bc.cachePath, "tmp")
-	// remove old tmp if exist
-	os.RemoveAll(tmp)
-
-	// copy recursive
-	err = bc.dfs(tmp, bc.basePath, info)
+	// check mod time
+	err = bc.dfs2(bc.basePath, info)
 	if err != nil {
-		return err
+		return
 	}
-	defer os.RemoveAll(tmp)
 
 	// check if needs to refresh digest
-	if !bc.isNewDigest {
-		eq := reflect.DeepEqual(bc.newDigest, bc.oldDigest)
+	if !bc.isCacheNeedsRefresh {
+		eq := reflect.DeepEqual(bc.newMod, bc.oldMod)
 		if eq {
-			bc.isNewDigest = false
+			bc.isCacheNeedsRefresh = false
 			log.Donef("files not changed, using old cache")
 			return
 		} else {
-			bc.isNewDigest = true
+			bc.isCacheNeedsRefresh = true
 		}
 	}
 
-	// move tmp to cache
+	// copy project to cache directory
 	cache := filepath.Join(bc.cachePath, "cache")
-	// rm old cache
+	// remove old tmp if exist
 	os.RemoveAll(cache)
-	os.Rename(tmp, cache)
+	err = os.MkdirAll(cache, os.ModePerm)
+	if err != nil {
+		return
+	}
 
-	// save new md5 digest
-	return bc.saveDigest()
+	// copy recursive
+	err = bc.dfs(cache, bc.basePath, info)
+	if err != nil {
+		return err
+	}
+
+	// save the new cache
+	return bc.saveCache()
+}
+
+// NeedRefresh tells if we need rebuild
+func (bc *BuildCache) NeedRefresh() bool {
+	return bc.isCacheNeedsRefresh
+}
+
+func (bc *BuildCache) dfs2(src string, info os.FileInfo) (err error) {
+
+	if _, ok := bc.skipPattern[src]; ok {
+		return
+	}
+
+	switch {
+	case info.Mode()&os.ModeSymlink != 0:
+		err = bc.sinfo(src)
+	case info.IsDir():
+		err = bc.dinfo(src)
+	case info.Mode()&os.ModeNamedPipe != 0:
+		log.Debugf("skip named pipe file: %v", src)
+	default:
+		err = bc.finfo(src)
+	}
+
+	return
+}
+
+func (bc *BuildCache) finfo(src string) (err error) {
+	f, err := os.Lstat(src)
+	if err != nil {
+		return
+	}
+
+	bc.newMod[src] = f.ModTime().UnixNano()
+
+	return
+}
+
+func (bc *BuildCache) dinfo(src string) (err error) {
+	contents, err := os.ReadDir(src)
+	if err != nil {
+		return
+	}
+
+	for _, content := range contents {
+		cs := filepath.Join(src, content.Name())
+
+		var err error
+
+		finfo, err := content.Info()
+		if err != nil {
+			return err
+		}
+
+		if err = bc.dfs2(cs, finfo); err != nil {
+			return err
+		}
+	}
+
+	return
+}
+
+func (bc *BuildCache) sinfo(src string) (err error) {
+	log.Debugf("found symlink: %v, follow the symlink to check mod time", src)
+	orig, err := os.Readlink(src)
+	if err != nil {
+		return
+	}
+
+	info, err := os.Lstat(orig)
+	if err != nil {
+		return
+	}
+
+	return bc.dfs2(orig, info)
 }
 
 func (bc *BuildCache) dfs(dst string, src string, info os.FileInfo) (err error) {
@@ -171,19 +255,9 @@ func (bc *BuildCache) fcopy(dst, src string) (err error) {
 	}
 	defer s.Close()
 
-	w := &DigestWriter{
-		f:   f,
-		md5: md5.New(),
-	}
-	if _, err = io.Copy(w, s); err != nil {
+	if _, err = io.Copy(f, s); err != nil {
 		return
 	}
-
-	relPath, err := filepath.Rel(bc.basePath, src)
-	if err != nil {
-		return
-	}
-	bc.newDigest[relPath] = fmt.Sprintf("%x", w.md5.Sum(nil))
 
 	return
 }
@@ -229,19 +303,17 @@ func (bc *BuildCache) scopy(dst, src string) (err error) {
 	return bc.dfs(dst, orig, info)
 }
 
-func (bc *BuildCache) saveDigest() (err error) {
+// save the mod time to disk
+func (bc *BuildCache) saveCache() (err error) {
 	f, err := os.Create(bc.cacheDigestFile)
 	if err != nil {
 		return
 	}
 	defer f.Close()
 
-	for k, v := range bc.newDigest {
-		line := k + " " + v + "\n"
-		_, err = f.WriteString(line)
-		if err != nil {
-			return
-		}
+	for path, modTime := range bc.newMod {
+		line := fmt.Sprintf("%v %v\n", path, modTime)
+		f.WriteString(line)
 	}
 
 	return
