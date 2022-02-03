@@ -178,3 +178,7 @@ func (t *terminalLogger) Fatalf(format string, args ...interface{}) {
 
 	os.Exit(1)
 }
+
+func (t *terminalLogger) SetExitCallback(callback func()) {
+	t.exitCallback = callback
+}

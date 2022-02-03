@@ -4,9 +4,9 @@ var g Logger
 
 func NewLogger(debug bool) {
 	if debug {
-
+		g = newCiLogger()
 	} else {
-
+		g = &terminalLogger{}
 	}
 }
 
