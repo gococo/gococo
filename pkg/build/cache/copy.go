@@ -148,6 +148,11 @@ func (bc *BuildCache) NeedRefresh() bool {
 	return bc.isCacheNeedsRefresh
 }
 
+// GetCachePath returns the cache path
+func (bc *BuildCache) GetCachePath() string {
+	return bc.cachePath
+}
+
 func (bc *BuildCache) dfs2(src string, info os.FileInfo) (err error) {
 
 	if _, ok := bc.skipPattern[src]; ok {
