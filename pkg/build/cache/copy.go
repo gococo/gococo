@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	CACHE_PATH   = ".gococo"
+	CACHE_DIR    = ".gococo"
 	CACHE_DIGEST = "digest.modtime"
 )
 
@@ -25,8 +25,8 @@ type BuildCache struct {
 	newMod              map[string]int64
 	isCacheNeedsRefresh bool
 
-	basePath        string
-	cachePath       string
+	baseDir         string
+	cacheDir        string
 	cacheDigestFile string
 
 	skipPattern map[string]struct{}
@@ -40,20 +40,20 @@ func NewBuildCache(base string, opts ...Option) (*BuildCache, error) {
 	bc := &BuildCache{
 		oldMod:      make(map[string]int64),
 		newMod:      make(map[string]int64),
-		basePath:    base,
+		baseDir:     base,
 		skipPattern: make(map[string]struct{}),
 	}
 
-	if cachePath := os.Getenv("GOCOCO_CACHE_PATH"); cachePath != "" {
-		bc.cachePath = filepath.Join(base, cachePath)
+	if cacheDir := os.Getenv("GOCOCO_CACHE_DIR"); cacheDir != "" {
+		bc.cacheDir = filepath.Join(base, cacheDir)
 	} else {
-		bc.cachePath = filepath.Join(base, CACHE_PATH)
+		bc.cacheDir = filepath.Join(base, CACHE_DIR)
 	}
 
 	if cacheDigestPath := os.Getenv("GOCOCO_CACHE_DIGEST"); cacheDigestPath != "" {
-		bc.cacheDigestFile = filepath.Join(bc.cachePath, cacheDigestPath)
+		bc.cacheDigestFile = filepath.Join(bc.cacheDir, cacheDigestPath)
 	} else {
-		bc.cacheDigestFile = filepath.Join(bc.cachePath, CACHE_DIGEST)
+		bc.cacheDigestFile = filepath.Join(bc.cacheDir, CACHE_DIGEST)
 	}
 
 	_, err := os.Lstat(bc.cacheDigestFile)
@@ -93,21 +93,25 @@ func NewBuildCache(base string, opts ...Option) (*BuildCache, error) {
 		o(bc)
 	}
 	// skip cache self
-	bc.skipPattern[bc.cachePath] = struct{}{}
+	bc.skipPattern[bc.cacheDir] = struct{}{}
 
 	return bc, nil
+}
+
+func (bc *BuildCache) GetCacheDir() string {
+	return filepath.Join(bc.cacheDir, "cache")
 }
 
 // cache the project into the cache folder,
 // and calculate the md5 digest of each file
 func (bc *BuildCache) Cache() (err error) {
-	info, err := os.Lstat(bc.basePath)
+	info, err := os.Lstat(bc.baseDir)
 	if err != nil {
 		return err
 	}
 
 	// check mod time
-	err = bc.dfs2(bc.basePath, info)
+	err = bc.dfs2(bc.baseDir, info)
 	if err != nil {
 		return
 	}
@@ -117,7 +121,6 @@ func (bc *BuildCache) Cache() (err error) {
 		eq := reflect.DeepEqual(bc.newMod, bc.oldMod)
 		if eq {
 			bc.isCacheNeedsRefresh = false
-			log.Donef("files not changed, using old cache")
 			return
 		} else {
 			bc.isCacheNeedsRefresh = true
@@ -125,7 +128,7 @@ func (bc *BuildCache) Cache() (err error) {
 	}
 
 	// copy project to cache directory
-	cache := filepath.Join(bc.cachePath, "cache")
+	cache := filepath.Join(bc.cacheDir, "cache")
 	// remove old tmp if exist
 	os.RemoveAll(cache)
 	err = os.MkdirAll(cache, os.ModePerm)
@@ -134,7 +137,7 @@ func (bc *BuildCache) Cache() (err error) {
 	}
 
 	// copy recursive
-	err = bc.dfs(cache, bc.basePath, info)
+	err = bc.dfs(cache, bc.baseDir, info)
 	if err != nil {
 		return err
 	}
@@ -146,11 +149,6 @@ func (bc *BuildCache) Cache() (err error) {
 // NeedRefresh tells if we need rebuild
 func (bc *BuildCache) NeedRefresh() bool {
 	return bc.isCacheNeedsRefresh
-}
-
-// GetCachePath returns the cache path
-func (bc *BuildCache) GetCachePath() string {
-	return bc.cachePath
 }
 
 func (bc *BuildCache) dfs2(src string, info os.FileInfo) (err error) {

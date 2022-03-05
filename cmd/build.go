@@ -1,37 +1,23 @@
 package cmd
 
 import (
-	"os"
-
-	"github.com/gococo/gococo/pkg/build/cache"
-	"github.com/gococo/gococo/pkg/log"
-
+	"github.com/gococo/gococo/pkg/build"
 	"github.com/spf13/cobra"
 )
 
 var buildCmd = &cobra.Command{
-	Use:    "build",
-	Short:  "build the main package",
-	PreRun: preBuild,
-	Run:    build,
+	Use:                "build",
+	DisableFlagParsing: true,
+	Run:                buildAction,
 }
 
-func preBuild(cmd *cobra.Command, args []string) {
+func buildAction(cmd *cobra.Command, args []string) {
+	b := build.NewBuild(
+		build.WithBuild(),
+		build.WithArgs(args...),
+	)
 
-}
-
-func build(cmd *cobra.Command, args []string) {
-	pwd, err := os.Getwd()
-	if err != nil {
-		log.Fatalf("fail to get current working directory: %v", err)
-	}
-
-	c, err := cache.NewBuildCache(pwd, cache.WithSkip(".git"))
-	if err != nil {
-		log.Fatalf("fail to init build cache: %v", err)
-	}
-
-	c.Cache()
+	b.Build()
 }
 
 func init() {
