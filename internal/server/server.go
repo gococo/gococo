@@ -324,11 +324,11 @@ func (s *Server) handleCoverageSummary(w http.ResponseWriter, r *http.Request) {
 	}
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"files":          entries,
-		"total_stmts":    totalStmts,
-		"hit_stmts":      hitStmts,
-		"overall_pct":    overallPct,
-		"total_events":   s.hub.TotalEvents(),
+		"files":        entries,
+		"total_stmts":  totalStmts,
+		"hit_stmts":    hitStmts,
+		"overall_pct":  overallPct,
+		"total_events": s.hub.TotalEvents(),
 	})
 }
 

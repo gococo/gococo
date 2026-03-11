@@ -7,7 +7,9 @@ import (
 
 // Single-line if.
 func SingleLineIf(x int) int {
-	if x > 0 { return x }
+	if x > 0 {
+		return x
+	}
 	return 0
 }
 

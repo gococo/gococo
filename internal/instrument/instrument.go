@@ -19,11 +19,11 @@ import (
 
 // Options configures the instrumentation.
 type Options struct {
-	Host     string   // gococo server address (e.g. "127.0.0.1:7778")
-	Packages []string // packages to build (e.g. "." or "./cmd/myapp")
-	GoFlags  []string // additional flags to pass to `go build`
-	OutputDir string  // where to place the built binary (-o)
-	Debug    bool
+	Host      string   // gococo server address (e.g. "127.0.0.1:7778")
+	Packages  []string // packages to build (e.g. "." or "./cmd/myapp")
+	GoFlags   []string // additional flags to pass to `go build`
+	OutputDir string   // where to place the built binary (-o)
+	Debug     bool
 }
 
 // Run performs the full instrument-and-build pipeline.
@@ -199,11 +199,11 @@ func injectAgent(mainDir string, mainImportPath string, coverDefImportPath strin
 	defer af.Close()
 
 	return agentTmpl.Execute(af, map[string]interface{}{
-		"PackageName":      agentPkgName,
+		"PackageName":        agentPkgName,
 		"CoverDefImportPath": coverDefImportPath,
-		"Host":             host,
-		"RandomID":         randomID,
-		"FileMetas":        metas,
+		"Host":               host,
+		"RandomID":           randomID,
+		"FileMetas":          metas,
 	})
 }
 
