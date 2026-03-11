@@ -356,7 +356,7 @@ func BuildGlobalCoverVarDecl(files []*FileInstrumentation, randomID string) stri
 
 	// Channel and enabled flag (unexported internals accessed via exported functions)
 	b.WriteString(fmt.Sprintf("var gococoCh_%s = make(chan *GococoBlock_%s, 8192)\n\n", randomID, randomID))
-	b.WriteString(fmt.Sprintf("var gococoEnabled_%s bool\n\n", randomID))
+	b.WriteString(fmt.Sprintf("var gococoEnabled_%s = true\n\n", randomID))
 
 	// Emit function: called from instrumented code via dot import
 	b.WriteString(fmt.Sprintf("func GococoEmit_%s(fileIdx int, blockIdx int) {\n", randomID))
@@ -414,6 +414,35 @@ func BuildGlobalCoverVarDecl(files []*FileInstrumentation, randomID string) stri
 	}
 	b.WriteString("\t}\n")
 	b.WriteString("\treturn\n")
+	b.WriteString("}\n\n")
+
+	// CounterSnapshot returns the current counter values for all blocks.
+	// Each entry: "file|blockIdx|count|sl|sc|el|ec|stmts"
+	// This captures ALL executions including init() and main() startup.
+	b.WriteString(fmt.Sprintf("type GococoCounterEntry_%s struct {\n", randomID))
+	b.WriteString("\tFile     string\n")
+	b.WriteString("\tBlockIdx int\n")
+	b.WriteString("\tCount    uint32\n")
+	b.WriteString("\tSL, SC, EL, EC, Stmts int\n")
+	b.WriteString("}\n\n")
+
+	b.WriteString(fmt.Sprintf("func CounterSnapshot_%s() []GococoCounterEntry_%s {\n", randomID, randomID))
+	b.WriteString(fmt.Sprintf("\tvar out []GococoCounterEntry_%s\n", randomID))
+	for i, fi := range files {
+		if len(fi.Blocks) == 0 {
+			continue
+		}
+		b.WriteString(fmt.Sprintf("\tfor j := 0; j < %d; j++ {\n", len(fi.Blocks)))
+		b.WriteString(fmt.Sprintf("\t\tc := GococoCov_%s_%d[j]\n", randomID, i))
+		b.WriteString(fmt.Sprintf("\t\tm := &gococoMeta_%s_%d\n", randomID, i))
+		b.WriteString(fmt.Sprintf("\t\tout = append(out, GococoCounterEntry_%s{\n", randomID))
+		b.WriteString("\t\t\tFile: m.File, BlockIdx: j, Count: c,\n")
+		b.WriteString("\t\t\tSL: m.StartLine[j], SC: m.StartCol[j],\n")
+		b.WriteString("\t\t\tEL: m.EndLine[j], EC: m.EndCol[j], Stmts: m.NumStmts[j],\n")
+		b.WriteString("\t\t})\n")
+		b.WriteString("\t}\n")
+	}
+	b.WriteString("\treturn out\n")
 	b.WriteString("}\n")
 
 	return b.String()

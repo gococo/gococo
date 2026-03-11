@@ -5,68 +5,65 @@ interface Props {
   events: CoverEvent[];
   goroutines: number[];
   onSelectFile: (file: string) => void;
+  sourceCache: Map<string, string[]>;
 }
 
 export const FlowTimeline: React.FC<Props> = ({
   events,
-  goroutines,
+  goroutines: _goroutines,
   onSelectFile,
+  sourceCache,
 }) => {
-  const recentByGoroutine = useMemo(() => {
-    const map = new Map<number, CoverEvent[]>();
-    for (const gid of goroutines) {
-      map.set(gid, []);
-    }
-    // Show last 50 events per goroutine
+  // For each goroutine, find its most recent event
+  const goroutineLatest = useMemo(() => {
+    const map = new Map<number, CoverEvent>();
     for (const ev of events) {
-      const arr = map.get(ev.gid);
-      if (arr && arr.length < 50) {
-        arr.push(ev);
-      }
+      map.set(ev.gid, ev);
     }
-    return map;
-  }, [events, goroutines]);
+    // Sort by goroutine ID
+    return Array.from(map.entries()).sort((a, b) => a[0] - b[0]);
+  }, [events]);
 
-  if (goroutines.length === 0) {
+  if (goroutineLatest.length === 0) {
     return (
-      <div className="flow-timeline-empty">
-        No execution flows yet
-      </div>
+      <div className="flow-timeline-empty">No execution flows yet</div>
     );
   }
 
   return (
     <div className="flow-timeline">
       <div className="flow-timeline-header">
-        Execution Flows ({goroutines.length} goroutines)
+        Goroutines ({goroutineLatest.length})
       </div>
       <div className="flow-timeline-body">
-        {goroutines.slice(0, 20).map((gid) => {
-          const gEvents = recentByGoroutine.get(gid) || [];
-          const lastEvent = gEvents[gEvents.length - 1];
-          const isActive =
-            lastEvent && Date.now() - lastEvent.ts / 1e6 < 5000;
+        {goroutineLatest.map(([gid, ev]) => {
+          const lines = sourceCache.get(ev.file);
+          const firstLine = lines?.[ev.sl - 1]?.trim() ?? '';
+          const blockLines = ev.el - ev.sl + 1;
+          const shortFile = ev.file.split('/').pop() ?? '';
+          const snippet =
+            firstLine.length > 80
+              ? firstLine.slice(0, 77) + '...'
+              : firstLine;
+          const age = (Date.now() - ev.ts / 1e6) / 1000;
+          const isHot = age < 3;
 
           return (
-            <div key={gid} className="flow-row">
-              <span
-                className={`flow-label ${isActive ? 'flow-active' : 'flow-idle'}`}
-              >
-                g{gid}
+            <div
+              key={gid}
+              className={`flow-event ${isHot ? 'flow-event-hot' : ''}`}
+              onClick={() => onSelectFile(ev.file)}
+            >
+              <span className="flow-event-gid">g{gid}</span>
+              <span className="flow-event-file">
+                {shortFile}:{ev.sl}
               </span>
-              <div className="flow-track">
-                {gEvents.map((ev, i) => {
-                  const shortFile = ev.file.split('/').pop() || '';
-                  return (
-                    <span
-                      key={i}
-                      className="flow-dot"
-                      title={`${shortFile}:${ev.sl} (seq ${ev.seq})`}
-                      onClick={() => onSelectFile(ev.file)}
-                    />
-                  );
-                })}
-              </div>
+              <span className="flow-event-code" title={firstLine}>
+                {snippet || `(line ${ev.sl})`}
+              </span>
+              <span className="flow-event-lines">
+                {blockLines === 1 ? '1 line' : `${blockLines} lines`}
+              </span>
             </div>
           );
         })}

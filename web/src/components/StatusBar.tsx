@@ -5,6 +5,8 @@ interface Props {
   goroutineCount: number;
   fileCount: number;
   coveragePct: number;
+  totalStmts: number;
+  hitStmts: number;
   connected: boolean;
 }
 
@@ -13,6 +15,8 @@ export const StatusBar: React.FC<Props> = ({
   goroutineCount,
   fileCount,
   coveragePct,
+  totalStmts,
+  hitStmts,
   connected,
 }) => {
   return (
@@ -30,7 +34,8 @@ export const StatusBar: React.FC<Props> = ({
         Files: <strong>{fileCount}</strong>
       </span>
       <span className="status-item coverage-pct">
-        Coverage: <strong>{coveragePct.toFixed(1)}%</strong>
+        Coverage: <strong>{coveragePct.toFixed(1)}%</strong>{' '}
+        <span className="coverage-detail">({hitStmts}/{totalStmts} stmts)</span>
       </span>
     </div>
   );

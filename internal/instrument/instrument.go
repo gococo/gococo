@@ -328,44 +328,56 @@ func init() {
 	if env := os.Getenv("GOCOCO_HOST"); env != "" {
 		host = env
 	}
-	go runAgent(host)
+
+	// Synchronous registration: block until connected or fail fast.
+	agentID := registerAgent(host)
+	registerBlocks(host, agentID)
+	log.Printf("[gococo] agent ready, streaming events")
+
+	// Start async event streaming and counter snapshot.
+	go runStreaming(host, agentID)
 }
 
-func runAgent(host string) {
+func registerAgent(host string) string {
 	hostname, _ := os.Hostname()
 	pid := os.Getpid()
 	cmdline := strings.Join(os.Args, " ")
 
-	var agentID string
-	for {
-		v := url.Values{}
-		v.Set("hostname", hostname)
-		v.Set("pid", fmt.Sprintf("%d", pid))
-		v.Set("cmdline", cmdline)
+	v := url.Values{}
+	v.Set("hostname", hostname)
+	v.Set("pid", fmt.Sprintf("%d", pid))
+	v.Set("cmdline", cmdline)
 
+	const maxRetries = 10
+	for i := 0; i < maxRetries; i++ {
 		resp, err := http.Get(fmt.Sprintf("http://%s/api/internal/register?%s", host, v.Encode()))
 		if err != nil {
-			log.Printf("[gococo] register failed: %v", err)
-			time.Sleep(3 * time.Second)
+			log.Printf("[gococo] register failed (attempt %d/%d): %v", i+1, maxRetries, err)
+			time.Sleep(1 * time.Second)
 			continue
 		}
 		buf := make([]byte, 256)
 		n, _ := resp.Body.Read(buf)
 		resp.Body.Close()
 		if resp.StatusCode == 200 {
-			agentID = strings.TrimSpace(string(buf[:n]))
-			break
+			agentID := strings.TrimSpace(string(buf[:n]))
+			log.Printf("[gococo] registered as agent %s", agentID)
+			return agentID
 		}
-		log.Printf("[gococo] register returned %d, retrying...", resp.StatusCode)
-		time.Sleep(3 * time.Second)
+		log.Printf("[gococo] register returned %d (attempt %d/%d)", resp.StatusCode, i+1, maxRetries)
+		time.Sleep(1 * time.Second)
 	}
 
-	log.Printf("[gococo] registered as agent %s", agentID)
+	fmt.Fprintf(os.Stderr, "[gococo] fatal: could not connect to server at %s after %d attempts\n", host, maxRetries)
+	os.Exit(1)
+	return ""
+}
 
-	// Send all block metadata so the server knows total coverage
-	registerBlocks(host, agentID)
-
-	_cov.SetEnabled_{{.RandomID}}(true)
+func runStreaming(host string, agentID string) {
+	// Wait briefly for main() and other init() to finish startup,
+	// then send a counter snapshot to capture their coverage.
+	time.Sleep(500 * time.Millisecond)
+	sendCounterSnapshot(host, agentID)
 
 	for {
 		err := streamEvents(host, agentID)
@@ -397,6 +409,25 @@ func registerBlocks(host string, agentID string) {
 	}
 	resp.Body.Close()
 	log.Printf("[gococo] registered block metadata with server")
+}
+
+func sendCounterSnapshot(host string, agentID string) {
+	entries := _cov.CounterSnapshot_{{.RandomID}}()
+	var sb strings.Builder
+	for _, e := range entries {
+		fmt.Fprintf(&sb, "%s|%d|%d|%d|%d|%d|%d|%d\n",
+			e.File, e.BlockIdx, e.Count, e.SL, e.SC, e.EL, e.EC, e.Stmts)
+	}
+	resp, err := http.Post(
+		fmt.Sprintf("http://%s/api/internal/counters?agent_id=%s", host, agentID),
+		"text/plain",
+		strings.NewReader(sb.String()))
+	if err != nil {
+		log.Printf("[gococo] send counter snapshot failed: %v", err)
+		return
+	}
+	resp.Body.Close()
+	log.Printf("[gococo] sent counter snapshot (%d blocks)", len(entries))
 }
 
 func streamEvents(host string, agentID string) error {

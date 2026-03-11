@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 
 	"github.com/gococo/gococo/internal/instrument"
 	"github.com/gococo/gococo/internal/server"
@@ -47,6 +48,7 @@ func main() {
 
 func runServer() {
 	addr := "127.0.0.1:7778"
+	root := "."
 	args := os.Args[2:]
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -55,11 +57,16 @@ func runServer() {
 				addr = args[i+1]
 				i++
 			}
+		case "--root", "-root":
+			if i+1 < len(args) {
+				root = args[i+1]
+				i++
+			}
 		}
 	}
 
-	// Embedded web UI will be wired in later; for now serve a placeholder.
-	s := server.New(addr, http.Dir("web/dist"))
+	absRoot, _ := filepath.Abs(root)
+	s := server.New(addr, http.Dir("web/dist"), absRoot)
 	if err := s.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "server error: %v\n", err)
 		os.Exit(1)

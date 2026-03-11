@@ -10,6 +10,8 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -26,6 +28,10 @@ type Server struct {
 	addr     string
 	mux      *http.ServeMux
 	sourceFS http.FileSystem // for serving embedded web UI
+
+	// Source code root directory and module path
+	sourceRoot string
+	modulePath string
 
 	// Coverage summary tracking
 	mu          sync.RWMutex
@@ -45,17 +51,34 @@ type blockState struct {
 }
 
 // New creates a new gococo server.
-func New(addr string, webFS http.FileSystem) *Server {
+func New(addr string, webFS http.FileSystem, sourceRoot string) *Server {
 	s := &Server{
 		hub:         NewHub(100000),
 		agents:      NewAgentRegistry(),
 		addr:        addr,
 		mux:         http.NewServeMux(),
 		sourceFS:    webFS,
+		sourceRoot:  sourceRoot,
 		blockStates: make(map[string]*blockState),
 	}
+	s.modulePath = readModulePath(sourceRoot)
 	s.routes()
 	return s
+}
+
+// readModulePath reads the module path from go.mod in the given directory.
+func readModulePath(dir string) string {
+	data, err := os.ReadFile(filepath.Join(dir, "go.mod"))
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "module ") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "module"))
+		}
+	}
+	return ""
 }
 
 // Run starts the server.
@@ -68,6 +91,7 @@ func (s *Server) routes() {
 	// Internal API (for instrumented binaries)
 	s.mux.HandleFunc("/api/internal/register", s.handleRegister)
 	s.mux.HandleFunc("/api/internal/register-blocks", s.handleRegisterBlocks)
+	s.mux.HandleFunc("/api/internal/counters", s.handleCounters)
 	s.mux.HandleFunc("/api/internal/events", s.handleEvents)
 
 	// Public API (for UI)
@@ -76,6 +100,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/events/history", s.handleEventHistory)
 	s.mux.HandleFunc("/api/coverage/summary", s.handleCoverageSummary)
 	s.mux.HandleFunc("/api/coverage/blocks", s.handleCoverageBlocks)
+	s.mux.HandleFunc("/api/source", s.handleSource)
 
 	// Web UI
 	if s.sourceFS != nil {
@@ -150,6 +175,67 @@ func (s *Server) handleRegisterBlocks(w http.ResponseWriter, r *http.Request) {
 	s.mu.Unlock()
 
 	log.Printf("[gococo] registered %d blocks from agent", count)
+	w.WriteHeader(http.StatusOK)
+}
+
+// handleCounters receives a full counter snapshot from an agent.
+// Format: file|blockIdx|count|sl|sc|el|ec|stmts per line.
+// This provides accurate coverage data including init() and main() startup.
+func (s *Server) handleCounters(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+
+	now := time.Now()
+	scanner := bufio.NewScanner(r.Body)
+	updated := 0
+	s.mu.Lock()
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "|", 8)
+		if len(parts) != 8 {
+			continue
+		}
+		file := parts[0]
+		blockIdx, _ := strconv.Atoi(parts[1])
+		count, _ := strconv.ParseUint(parts[2], 10, 32)
+		sl, _ := strconv.Atoi(parts[3])
+		sc, _ := strconv.Atoi(parts[4])
+		el, _ := strconv.Atoi(parts[5])
+		ec, _ := strconv.Atoi(parts[6])
+		stmts, _ := strconv.Atoi(parts[7])
+
+		key := fmt.Sprintf("%s:%d", file, blockIdx)
+		bs, ok := s.blockStates[key]
+		if !ok {
+			bs = &blockState{
+				File:      file,
+				BlockIdx:  blockIdx,
+				StartLine: sl,
+				StartCol:  sc,
+				EndLine:   el,
+				EndCol:    ec,
+				NumStmts:  stmts,
+			}
+			s.blockStates[key] = bs
+		}
+		// Counter is ground truth; update if larger
+		if count > bs.HitCount {
+			bs.HitCount = count
+			if bs.LastHitAt.IsZero() {
+				bs.LastHitAt = now
+			}
+			updated++
+		}
+	}
+	s.mu.Unlock()
+
+	log.Printf("[gococo] counter snapshot: %d blocks updated", updated)
+
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -372,6 +458,34 @@ func (s *Server) handleCoverageBlocks(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"blocks": blocks,
 	})
+}
+
+// handleSource serves source code from disk.
+// The coverage file path is like "module/path/pkg/file.go".
+// We strip the module prefix to get the relative path on disk.
+func (s *Server) handleSource(w http.ResponseWriter, r *http.Request) {
+	setCORS(w)
+	fileQuery := r.URL.Query().Get("file")
+	if fileQuery == "" {
+		http.Error(w, "missing file param", http.StatusBadRequest)
+		return
+	}
+
+	// Strip module path prefix to get relative path
+	rel := fileQuery
+	if s.modulePath != "" && strings.HasPrefix(rel, s.modulePath+"/") {
+		rel = strings.TrimPrefix(rel, s.modulePath+"/")
+	}
+
+	absPath := filepath.Join(s.sourceRoot, rel)
+	data, err := os.ReadFile(absPath)
+	if err != nil {
+		http.Error(w, "file not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Write(data)
 }
 
 func setCORS(w http.ResponseWriter) {

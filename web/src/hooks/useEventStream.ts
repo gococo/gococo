@@ -1,19 +1,19 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 import { CoverEvent } from '../types';
 
-export function useEventStream(
-  onEvent: (event: CoverEvent) => void,
-  enabled: boolean = true
-) {
+export function useEventStream(onEvent: (event: CoverEvent) => void) {
   const eventSourceRef = useRef<EventSource | null>(null);
   const onEventRef = useRef(onEvent);
   onEventRef.current = onEvent;
+  const [connected, setConnected] = useState(false);
 
   useEffect(() => {
-    if (!enabled) return;
-
     const es = new EventSource('/api/events/stream');
     eventSourceRef.current = es;
+
+    es.onopen = () => {
+      setConnected(true);
+    };
 
     es.onmessage = (msg) => {
       try {
@@ -25,19 +25,22 @@ export function useEventStream(
     };
 
     es.onerror = () => {
+      setConnected(false);
       // EventSource auto-reconnects
     };
 
     return () => {
       es.close();
       eventSourceRef.current = null;
+      setConnected(false);
     };
-  }, [enabled]);
+  }, []);
 
   const disconnect = useCallback(() => {
     eventSourceRef.current?.close();
     eventSourceRef.current = null;
+    setConnected(false);
   }, []);
 
-  return { disconnect };
+  return { connected, disconnect };
 }

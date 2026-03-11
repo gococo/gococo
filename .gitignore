@@ -11,6 +11,6 @@
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
 
-# gococo binary
-gococo
+# gococo binary (root only)
+/gococo
 .DS_Store
