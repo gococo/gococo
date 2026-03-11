@@ -209,7 +209,7 @@ func (rw *rewriter) addCounter(start, end, insertAt token.Pos, numStmts int) {
 		NumStmts:  numStmts,
 	})
 
-	counter := fmt.Sprintf("_gococo_cov_%s[%d]++; _gococo_emit_%s(%d, %d);",
+	counter := fmt.Sprintf("GococoCov_%s[%d]++; GococoEmit_%s(%d, %d);",
 		rw.randomID, idx, rw.randomID, rw.fileIdx, idx)
 
 	offset := rw.fset.Position(insertAt).Offset
@@ -354,24 +354,22 @@ func BuildGlobalCoverVarDecl(files []*FileInstrumentation, randomID string) stri
 	b.WriteString("\tBlockIdx int\n")
 	b.WriteString("}\n\n")
 
-	// Channel and enabled flag
-	b.WriteString(fmt.Sprintf("var _gococo_ch_%s = make(chan *GococoBlock_%s, 8192)\n\n", randomID, randomID))
-	b.WriteString(fmt.Sprintf("var _gococo_enabled_%s bool\n\n", randomID))
+	// Channel and enabled flag (unexported internals accessed via exported functions)
+	b.WriteString(fmt.Sprintf("var gococoCh_%s = make(chan *GococoBlock_%s, 8192)\n\n", randomID, randomID))
+	b.WriteString(fmt.Sprintf("var gococoEnabled_%s bool\n\n", randomID))
 
-	// Emit function: called from instrumented code
-	b.WriteString(fmt.Sprintf("func _gococo_emit_%s(fileIdx int, blockIdx int) {\n", randomID))
-	b.WriteString(fmt.Sprintf("\tif !_gococo_enabled_%s { return }\n", randomID))
+	// Emit function: called from instrumented code via dot import
+	b.WriteString(fmt.Sprintf("func GococoEmit_%s(fileIdx int, blockIdx int) {\n", randomID))
+	b.WriteString(fmt.Sprintf("\tif !gococoEnabled_%s { return }\n", randomID))
 	b.WriteString("\tselect {\n")
-	b.WriteString(fmt.Sprintf("\tcase _gococo_ch_%s <- &GococoBlock_%s{FileIdx: fileIdx, BlockIdx: blockIdx}:\n", randomID, randomID))
+	b.WriteString(fmt.Sprintf("\tcase gococoCh_%s <- &GococoBlock_%s{FileIdx: fileIdx, BlockIdx: blockIdx}:\n", randomID, randomID))
 	b.WriteString("\tdefault:\n")
 	b.WriteString("\t}\n")
 	b.WriteString("}\n\n")
 
-	// Accessor: SetEnabled
-	b.WriteString(fmt.Sprintf("func SetEnabled_%s(v bool) { _gococo_enabled_%s = v }\n\n", randomID, randomID))
-
-	// Accessor: EventChan
-	b.WriteString(fmt.Sprintf("func EventChan_%s() <-chan *GococoBlock_%s { return _gococo_ch_%s }\n\n", randomID, randomID, randomID))
+	// Exported accessors for the agent package
+	b.WriteString(fmt.Sprintf("func SetEnabled_%s(v bool) { gococoEnabled_%s = v }\n\n", randomID, randomID))
+	b.WriteString(fmt.Sprintf("func EventChan_%s() <-chan *GococoBlock_%s { return gococoCh_%s }\n\n", randomID, randomID, randomID))
 
 	// Per-file counter arrays and block metadata
 	for i, fi := range files {
@@ -380,9 +378,11 @@ func BuildGlobalCoverVarDecl(files []*FileInstrumentation, randomID string) stri
 			continue
 		}
 
-		b.WriteString(fmt.Sprintf("var _gococo_cov_%s [%d]uint32 // %s\n", randomID, nblocks, fi.FilePath))
+		// Exported counter array (accessed via dot import)
+		b.WriteString(fmt.Sprintf("var GococoCov_%s [%d]uint32 // %s\n", randomID, nblocks, fi.FilePath))
 
-		b.WriteString(fmt.Sprintf("var _gococo_meta_%s_%d = struct {\n", randomID, i))
+		// Unexported metadata (accessed via exported BlockMeta function)
+		b.WriteString(fmt.Sprintf("var gococoMeta_%s_%d = struct {\n", randomID, i))
 		b.WriteString("\tFile      string\n")
 		b.WriteString(fmt.Sprintf("\tStartLine [%d]int\n", nblocks))
 		b.WriteString(fmt.Sprintf("\tStartCol  [%d]int\n", nblocks))
@@ -401,7 +401,7 @@ func BuildGlobalCoverVarDecl(files []*FileInstrumentation, randomID string) stri
 		b.WriteString("}\n\n")
 	}
 
-	// Accessor: BlockMeta returns metadata for a given file/block index
+	// Exported accessor: BlockMeta returns metadata for a given file/block index
 	b.WriteString(fmt.Sprintf("func BlockMeta_%s(fileIdx int, blockIdx int) (file string, sl, sc, el, ec, stmts int) {\n", randomID))
 	b.WriteString("\tswitch fileIdx {\n")
 	for i, fi := range files {
@@ -409,7 +409,7 @@ func BuildGlobalCoverVarDecl(files []*FileInstrumentation, randomID string) stri
 			continue
 		}
 		b.WriteString(fmt.Sprintf("\tcase %d:\n", i))
-		b.WriteString(fmt.Sprintf("\t\tm := &_gococo_meta_%s_%d\n", randomID, i))
+		b.WriteString(fmt.Sprintf("\t\tm := &gococoMeta_%s_%d\n", randomID, i))
 		b.WriteString("\t\treturn m.File, m.StartLine[blockIdx], m.StartCol[blockIdx], m.EndLine[blockIdx], m.EndCol[blockIdx], m.NumStmts[blockIdx]\n")
 	}
 	b.WriteString("\t}\n")
