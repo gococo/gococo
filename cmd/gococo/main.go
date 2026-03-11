@@ -2,12 +2,14 @@ package main
 
 import (
 	"fmt"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
 
 	"github.com/gococo/gococo/internal/instrument"
 	"github.com/gococo/gococo/internal/server"
+	"github.com/gococo/gococo/web"
 )
 
 const usage = `gococo - real-time Go coverage visualization
@@ -66,7 +68,8 @@ func runServer() {
 	}
 
 	absRoot, _ := filepath.Abs(root)
-	s := server.New(addr, http.Dir("web/dist"), absRoot)
+	webFS, _ := fs.Sub(web.Dist, "dist")
+	s := server.New(addr, http.FS(webFS), absRoot)
 	if err := s.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "server error: %v\n", err)
 		os.Exit(1)

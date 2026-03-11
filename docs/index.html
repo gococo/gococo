@@ -153,67 +153,11 @@ pre code { background: none; padding: 0; }
   margin-bottom: 24px;
 }
 
-/* Simulated code view */
-.sim-code {
-  background: var(--bg2);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  overflow: hidden;
-  font-family: 'SF Mono', 'Fira Code', monospace;
-  font-size: 13px;
-  line-height: 1.7;
+/* Demo image */
+.code-demo img {
+  display: block;
+  margin: 0 auto;
 }
-.sim-header {
-  padding: 8px 16px;
-  background: var(--bg3);
-  border-bottom: 1px solid var(--border);
-  color: var(--text2);
-  font-size: 12px;
-}
-.sim-line {
-  display: flex;
-  padding: 0 16px;
-  min-height: 22px;
-}
-.sim-line.hit {
-  background: var(--green-dim);
-  border-left: 3px solid rgba(63,185,80,0.4);
-}
-.sim-line.hot {
-  background: rgba(63,185,80,0.25);
-  border-left: 3px solid rgba(63,185,80,0.7);
-  animation: pulse 2s ease-in-out infinite;
-}
-@keyframes pulse {
-  0%,100% { opacity:1; }
-  50% { opacity:0.8; }
-}
-.sim-num {
-  width: 40px;
-  text-align: right;
-  padding-right: 12px;
-  color: #484f58;
-  user-select: none;
-  flex-shrink: 0;
-}
-.sim-dot {
-  width: 16px;
-  text-align: center;
-  color: var(--green);
-  font-size: 10px;
-  flex-shrink: 0;
-}
-.sim-src { flex:1; white-space:pre; }
-.sim-meta {
-  color: var(--text2);
-  font-size: 11px;
-  margin-left: 12px;
-  flex-shrink: 0;
-}
-.kw { color: var(--blue); }
-.fn { color: var(--purple); }
-.str { color: #a5d6ff; }
-.cm { color: #484f58; }
 
 /* Quick start */
 .quickstart {
@@ -300,31 +244,11 @@ footer {
   </div>
 </section>
 
-<!-- Code demo -->
+<!-- Demo -->
 <section class="code-demo">
   <h2>Live Coverage View</h2>
   <p class="subtitle">Lines glow when hit, fade over time. Uncovered code stays dark.</p>
-  <div class="sim-code">
-    <div class="sim-header">demo/main.go</div>
-    <div class="sim-line hit"><span class="sim-num">41</span><span class="sim-dot">&#9675;</span><span class="sim-src"><span class="kw">func</span> <span class="fn">classify</span>(n <span class="kw">int</span>) <span class="kw">string</span> {</span><span class="sim-meta">x12 18:05:22 (3s ago)</span></div>
-    <div class="sim-line hit"><span class="sim-num">42</span><span class="sim-dot">&#9675;</span><span class="sim-src">    <span class="kw">if</span> n &lt;= 0 {</span><span class="sim-meta">x12</span></div>
-    <div class="sim-line"><span class="sim-num">43</span><span class="sim-dot"></span><span class="sim-src">        <span class="kw">return</span> <span class="str">"non-positive"</span></span></div>
-    <div class="sim-line"><span class="sim-num">44</span><span class="sim-dot"></span><span class="sim-src">    }</span></div>
-    <div class="sim-line hot"><span class="sim-num">45</span><span class="sim-dot">&#9679;</span><span class="sim-src">    <span class="kw">if</span> n%2 == 0 {</span><span class="sim-meta">x8 18:05:30 (just now)</span></div>
-    <div class="sim-line hot"><span class="sim-num">46</span><span class="sim-dot">&#9679;</span><span class="sim-src">        <span class="kw">if</span> n%4 == 0 {</span><span class="sim-meta">x5</span></div>
-    <div class="sim-line"><span class="sim-num">47</span><span class="sim-dot"></span><span class="sim-src">            <span class="kw">if</span> n%8 == 0 {</span></div>
-    <div class="sim-line hit"><span class="sim-num">48</span><span class="sim-dot">&#9675;</span><span class="sim-src">                <span class="kw">return</span> <span class="str">"divisible by 8"</span></span><span class="sim-meta">x2</span></div>
-    <div class="sim-line"><span class="sim-num">49</span><span class="sim-dot"></span><span class="sim-src">            }</span></div>
-    <div class="sim-line hit"><span class="sim-num">50</span><span class="sim-dot">&#9675;</span><span class="sim-src">            <span class="kw">return</span> <span class="str">"divisible by 4"</span></span><span class="sim-meta">x3</span></div>
-    <div class="sim-line"><span class="sim-num">51</span><span class="sim-dot"></span><span class="sim-src">        }</span></div>
-    <div class="sim-line hit"><span class="sim-num">52</span><span class="sim-dot">&#9675;</span><span class="sim-src">        <span class="kw">return</span> <span class="str">"even"</span></span><span class="sim-meta">x3</span></div>
-    <div class="sim-line"><span class="sim-num">53</span><span class="sim-dot"></span><span class="sim-src">    }</span></div>
-    <div class="sim-line hit"><span class="sim-num">54</span><span class="sim-dot">&#9675;</span><span class="sim-src">    <span class="kw">if</span> <span class="fn">isPrime</span>(n) {</span><span class="sim-meta">x4</span></div>
-    <div class="sim-line hit"><span class="sim-num">55</span><span class="sim-dot">&#9675;</span><span class="sim-src">        <span class="kw">return</span> <span class="str">"prime"</span></span><span class="sim-meta">x2</span></div>
-    <div class="sim-line"><span class="sim-num">56</span><span class="sim-dot"></span><span class="sim-src">    }</span></div>
-    <div class="sim-line hit"><span class="sim-num">57</span><span class="sim-dot">&#9675;</span><span class="sim-src">    <span class="kw">return</span> <span class="str">"odd composite"</span></span><span class="sim-meta">x2</span></div>
-    <div class="sim-line"><span class="sim-num">58</span><span class="sim-dot"></span><span class="sim-src">}</span></div>
-  </div>
+  <img src="gococo.gif" alt="gococo demo" style="width:100%; border-radius:8px; border:1px solid var(--border);">
 </section>
 
 <!-- Quick Start -->

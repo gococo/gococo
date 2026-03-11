@@ -4,6 +4,8 @@
 
 gococo instruments your Go binary at build time, streams per-block execution events as they happen, and displays live coverage in a web UI. Unlike Go's built-in coverage (batch dump at exit), gococo shows you *which code is running right now*.
 
+![gococo demo](docs/gococo.gif)
+
 ## How It Works
 
 ```
