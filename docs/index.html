@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>gococo - Real-time Go Coverage Visualization</title>
+<meta name="description" content="Stream per-block coverage events from running Go binaries. See which code is executing right now.">
+<style>
+:root {
+  --bg: #0d1117;
+  --bg2: #161b22;
+  --bg3: #21262d;
+  --border: #30363d;
+  --text: #e6edf3;
+  --text2: #8b949e;
+  --green: #3fb950;
+  --green-dim: rgba(63,185,80,0.15);
+  --blue: #58a6ff;
+  --purple: #bc8cff;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+}
+a { color: var(--blue); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code, pre {
+  font-family: 'SF Mono', 'Fira Code', 'JetBrains Mono', monospace;
+  font-size: 14px;
+}
+pre {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 20px;
+  overflow-x: auto;
+  line-height: 1.5;
+}
+code {
+  background: var(--bg3);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+pre code { background: none; padding: 0; }
+
+.container { max-width: 900px; margin: 0 auto; padding: 0 24px; }
+
+/* Hero */
+.hero {
+  text-align: center;
+  padding: 80px 0 60px;
+  border-bottom: 1px solid var(--border);
+}
+.hero h1 {
+  font-size: 56px;
+  font-weight: 800;
+  color: var(--green);
+  letter-spacing: -2px;
+  margin-bottom: 16px;
+}
+.hero p {
+  font-size: 20px;
+  color: var(--text2);
+  max-width: 600px;
+  margin: 0 auto 32px;
+}
+.hero-buttons {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.btn {
+  display: inline-block;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 600;
+  transition: opacity 0.15s;
+}
+.btn:hover { text-decoration: none; opacity: 0.9; }
+.btn-primary {
+  background: var(--green);
+  color: var(--bg);
+}
+.btn-secondary {
+  background: var(--bg3);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+/* Diagram */
+.diagram {
+  padding: 48px 0;
+  border-bottom: 1px solid var(--border);
+}
+.diagram pre {
+  text-align: center;
+  font-size: 13px;
+  color: var(--text2);
+  border: none;
+  background: none;
+}
+
+/* Features */
+.features {
+  padding: 60px 0;
+  border-bottom: 1px solid var(--border);
+}
+.features h2 {
+  font-size: 32px;
+  font-weight: 700;
+  margin-bottom: 32px;
+  text-align: center;
+}
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 20px;
+}
+.feature-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 24px;
+}
+.feature-card h3 {
+  font-size: 16px;
+  margin-bottom: 8px;
+  color: var(--green);
+}
+.feature-card p {
+  font-size: 14px;
+  color: var(--text2);
+}
+
+/* Code demo */
+.code-demo {
+  padding: 60px 0;
+  border-bottom: 1px solid var(--border);
+}
+.code-demo h2 {
+  font-size: 32px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+.code-demo .subtitle {
+  color: var(--text2);
+  margin-bottom: 24px;
+}
+
+/* Simulated code view */
+.sim-code {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 13px;
+  line-height: 1.7;
+}
+.sim-header {
+  padding: 8px 16px;
+  background: var(--bg3);
+  border-bottom: 1px solid var(--border);
+  color: var(--text2);
+  font-size: 12px;
+}
+.sim-line {
+  display: flex;
+  padding: 0 16px;
+  min-height: 22px;
+}
+.sim-line.hit {
+  background: var(--green-dim);
+  border-left: 3px solid rgba(63,185,80,0.4);
+}
+.sim-line.hot {
+  background: rgba(63,185,80,0.25);
+  border-left: 3px solid rgba(63,185,80,0.7);
+  animation: pulse 2s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%,100% { opacity:1; }
+  50% { opacity:0.8; }
+}
+.sim-num {
+  width: 40px;
+  text-align: right;
+  padding-right: 12px;
+  color: #484f58;
+  user-select: none;
+  flex-shrink: 0;
+}
+.sim-dot {
+  width: 16px;
+  text-align: center;
+  color: var(--green);
+  font-size: 10px;
+  flex-shrink: 0;
+}
+.sim-src { flex:1; white-space:pre; }
+.sim-meta {
+  color: var(--text2);
+  font-size: 11px;
+  margin-left: 12px;
+  flex-shrink: 0;
+}
+.kw { color: var(--blue); }
+.fn { color: var(--purple); }
+.str { color: #a5d6ff; }
+.cm { color: #484f58; }
+
+/* Quick start */
+.quickstart {
+  padding: 60px 0;
+  border-bottom: 1px solid var(--border);
+}
+.quickstart h2 {
+  font-size: 32px;
+  font-weight: 700;
+  margin-bottom: 24px;
+}
+.step {
+  margin-bottom: 20px;
+}
+.step-label {
+  font-size: 14px;
+  color: var(--text2);
+  margin-bottom: 6px;
+}
+
+/* Footer */
+footer {
+  padding: 40px 0;
+  text-align: center;
+  color: var(--text2);
+  font-size: 14px;
+}
+</style>
+</head>
+<body>
+
+<div class="container">
+
+<!-- Hero -->
+<section class="hero">
+  <h1>gococo</h1>
+  <p>Real-time Go coverage visualization. See which code is running right now, not after it stops.</p>
+  <div class="hero-buttons">
+    <a href="https://github.com/gococo/gococo" class="btn btn-primary">View on GitHub</a>
+    <a href="#quickstart" class="btn btn-secondary">Quick Start</a>
+  </div>
+</section>
+
+<!-- Diagram -->
+<section class="diagram">
+<pre>
+ Go Project ──► gococo build ──► Instrumented Binary
+                                        │
+                                   events (HTTP stream)
+                                        │
+                                        ▼
+                                  gococo server ──► Web UI (SSE)
+</pre>
+</section>
+
+<!-- Features -->
+<section class="features">
+  <h2>Features</h2>
+  <div class="feature-grid">
+    <div class="feature-card">
+      <h3>Real-time Streaming</h3>
+      <p>Per-block coverage events streamed as they happen. No batch dumps, no restart required.</p>
+    </div>
+    <div class="feature-card">
+      <h3>Source Code View</h3>
+      <p>Actual source displayed with line-level coverage. Hit lines glow green, then fade over time.</p>
+    </div>
+    <div class="feature-card">
+      <h3>Goroutine Tracking</h3>
+      <p>See which goroutines execute which code. Execution flow panel shows per-goroutine activity.</p>
+    </div>
+    <div class="feature-card">
+      <h3>Accurate Coverage</h3>
+      <p>Counter snapshots capture init() and main() startup. Server-side stmt-level coverage calculation.</p>
+    </div>
+    <div class="feature-card">
+      <h3>Zero Dependencies</h3>
+      <p>Pure Go server, no external dependencies. Web UI built with React + Vite. Standard HTTP/SSE.</p>
+    </div>
+    <div class="feature-card">
+      <h3>Multi-package Support</h3>
+      <p>Instruments all packages in your module. Directory tree with per-file coverage percentages.</p>
+    </div>
+  </div>
+</section>
+
+<!-- Code demo -->
+<section class="code-demo">
+  <h2>Live Coverage View</h2>
+  <p class="subtitle">Lines glow when hit, fade over time. Uncovered code stays dark.</p>
+  <div class="sim-code">
+    <div class="sim-header">demo/main.go</div>
+    <div class="sim-line hit"><span class="sim-num">41</span><span class="sim-dot">&#9675;</span><span class="sim-src"><span class="kw">func</span> <span class="fn">classify</span>(n <span class="kw">int</span>) <span class="kw">string</span> {</span><span class="sim-meta">x12 18:05:22 (3s ago)</span></div>
+    <div class="sim-line hit"><span class="sim-num">42</span><span class="sim-dot">&#9675;</span><span class="sim-src">    <span class="kw">if</span> n &lt;= 0 {</span><span class="sim-meta">x12</span></div>
+    <div class="sim-line"><span class="sim-num">43</span><span class="sim-dot"></span><span class="sim-src">        <span class="kw">return</span> <span class="str">"non-positive"</span></span></div>
+    <div class="sim-line"><span class="sim-num">44</span><span class="sim-dot"></span><span class="sim-src">    }</span></div>
+    <div class="sim-line hot"><span class="sim-num">45</span><span class="sim-dot">&#9679;</span><span class="sim-src">    <span class="kw">if</span> n%2 == 0 {</span><span class="sim-meta">x8 18:05:30 (just now)</span></div>
+    <div class="sim-line hot"><span class="sim-num">46</span><span class="sim-dot">&#9679;</span><span class="sim-src">        <span class="kw">if</span> n%4 == 0 {</span><span class="sim-meta">x5</span></div>
+    <div class="sim-line"><span class="sim-num">47</span><span class="sim-dot"></span><span class="sim-src">            <span class="kw">if</span> n%8 == 0 {</span></div>
+    <div class="sim-line hit"><span class="sim-num">48</span><span class="sim-dot">&#9675;</span><span class="sim-src">                <span class="kw">return</span> <span class="str">"divisible by 8"</span></span><span class="sim-meta">x2</span></div>
+    <div class="sim-line"><span class="sim-num">49</span><span class="sim-dot"></span><span class="sim-src">            }</span></div>
+    <div class="sim-line hit"><span class="sim-num">50</span><span class="sim-dot">&#9675;</span><span class="sim-src">            <span class="kw">return</span> <span class="str">"divisible by 4"</span></span><span class="sim-meta">x3</span></div>
+    <div class="sim-line"><span class="sim-num">51</span><span class="sim-dot"></span><span class="sim-src">        }</span></div>
+    <div class="sim-line hit"><span class="sim-num">52</span><span class="sim-dot">&#9675;</span><span class="sim-src">        <span class="kw">return</span> <span class="str">"even"</span></span><span class="sim-meta">x3</span></div>
+    <div class="sim-line"><span class="sim-num">53</span><span class="sim-dot"></span><span class="sim-src">    }</span></div>
+    <div class="sim-line hit"><span class="sim-num">54</span><span class="sim-dot">&#9675;</span><span class="sim-src">    <span class="kw">if</span> <span class="fn">isPrime</span>(n) {</span><span class="sim-meta">x4</span></div>
+    <div class="sim-line hit"><span class="sim-num">55</span><span class="sim-dot">&#9675;</span><span class="sim-src">        <span class="kw">return</span> <span class="str">"prime"</span></span><span class="sim-meta">x2</span></div>
+    <div class="sim-line"><span class="sim-num">56</span><span class="sim-dot"></span><span class="sim-src">    }</span></div>
+    <div class="sim-line hit"><span class="sim-num">57</span><span class="sim-dot">&#9675;</span><span class="sim-src">    <span class="kw">return</span> <span class="str">"odd composite"</span></span><span class="sim-meta">x2</span></div>
+    <div class="sim-line"><span class="sim-num">58</span><span class="sim-dot"></span><span class="sim-src">}</span></div>
+  </div>
+</section>
+
+<!-- Quick Start -->
+<section class="quickstart" id="quickstart">
+  <h2>Quick Start</h2>
+
+  <div class="step">
+    <div class="step-label">Install</div>
+    <pre><code>go install github.com/gococo/gococo/cmd/gococo@latest</code></pre>
+  </div>
+
+  <div class="step">
+    <div class="step-label">Start server in your project directory</div>
+    <pre><code>gococo server</code></pre>
+  </div>
+
+  <div class="step">
+    <div class="step-label">Instrument and build</div>
+    <pre><code>gococo build -o ./myapp-instrumented .</code></pre>
+  </div>
+
+  <div class="step">
+    <div class="step-label">Run and open the UI</div>
+    <pre><code>./myapp-instrumented
+# Open http://127.0.0.1:7778</code></pre>
+  </div>
+</section>
+
+<footer>
+  <p>gococo is open source under the MIT license.</p>
+  <p><a href="https://github.com/gococo/gococo">GitHub</a></p>
+</footer>
+
+</div>
+</body>
+</html>
