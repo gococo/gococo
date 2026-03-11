@@ -1,4 +1,4 @@
-# gococo
+# gococo — Go Coverage Collection Tools
 
 **Real-time Go coverage visualization.**
 
