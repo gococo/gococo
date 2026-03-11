@@ -74,6 +74,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/events/stream", s.handleEventStream)
 	s.mux.HandleFunc("/api/events/history", s.handleEventHistory)
 	s.mux.HandleFunc("/api/coverage/summary", s.handleCoverageSummary)
+	s.mux.HandleFunc("/api/coverage/blocks", s.handleCoverageBlocks)
 
 	// Web UI
 	if s.sourceFS != nil {
@@ -278,6 +279,48 @@ func (s *Server) handleCoverageSummary(w http.ResponseWriter, r *http.Request) {
 		"hit_stmts":      hitStmts,
 		"overall_pct":    overallPct,
 		"total_events":   s.hub.TotalEvents(),
+	})
+}
+
+// BlockDetail is the JSON shape for a single coverage block.
+type BlockDetail struct {
+	BlockIdx  int    `json:"block_idx"`
+	StartLine int    `json:"sl"`
+	StartCol  int    `json:"sc"`
+	EndLine   int    `json:"el"`
+	EndCol    int    `json:"ec"`
+	NumStmts  int    `json:"stmts"`
+	HitCount  uint64 `json:"hit_count"`
+	LastHitAt int64  `json:"last_hit_ts"` // unix ms
+}
+
+// handleCoverageBlocks returns block-level coverage for a given file.
+// Query param: file=<import_path/filename>
+func (s *Server) handleCoverageBlocks(w http.ResponseWriter, r *http.Request) {
+	setCORS(w)
+	fileQuery := r.URL.Query().Get("file")
+
+	s.mu.RLock()
+	var blocks []BlockDetail
+	for _, bs := range s.blockStates {
+		if fileQuery != "" && bs.File != fileQuery {
+			continue
+		}
+		blocks = append(blocks, BlockDetail{
+			BlockIdx:  bs.BlockIdx,
+			StartLine: bs.StartLine,
+			StartCol:  bs.StartCol,
+			EndLine:   bs.EndLine,
+			EndCol:    bs.EndCol,
+			NumStmts:  bs.NumStmts,
+			HitCount:  bs.HitCount,
+			LastHitAt: bs.LastHitAt.UnixMilli(),
+		})
+	}
+	s.mu.RUnlock()
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"blocks": blocks,
 	})
 }
 
