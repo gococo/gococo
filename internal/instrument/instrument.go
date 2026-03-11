@@ -179,12 +179,13 @@ func injectAgent(mainDir string, mainImportPath string, coverDefImportPath strin
 
 	// Build file metadata for template
 	type fileMeta struct {
-		FileIdx int
+		FileIdx    int
+		BlockCount int
 	}
 	var metas []fileMeta
 	for i, fi := range files {
 		if len(fi.Blocks) > 0 {
-			metas = append(metas, fileMeta{FileIdx: i})
+			metas = append(metas, fileMeta{FileIdx: i, BlockCount: len(fi.Blocks)})
 		}
 	}
 
@@ -360,6 +361,10 @@ func runAgent(host string) {
 	}
 
 	log.Printf("[gococo] registered as agent %s", agentID)
+
+	// Send all block metadata so the server knows total coverage
+	registerBlocks(host, agentID)
+
 	_cov.SetEnabled_{{.RandomID}}(true)
 
 	for {
@@ -371,6 +376,27 @@ func runAgent(host string) {
 		time.Sleep(2 * time.Second)
 		_cov.SetEnabled_{{.RandomID}}(true)
 	}
+}
+
+func registerBlocks(host string, agentID string) {
+	var sb strings.Builder
+	{{- range .FileMetas}}
+	for bi := 0; bi < {{.BlockCount}}; bi++ {
+		file, sl, sc, el, ec, stmts := _cov.BlockMeta_{{$.RandomID}}({{.FileIdx}}, bi)
+		fmt.Fprintf(&sb, "%s|%d|%d|%d|%d|%d|%d\n", file, bi, sl, sc, el, ec, stmts)
+	}
+	{{- end}}
+
+	resp, err := http.Post(
+		fmt.Sprintf("http://%s/api/internal/register-blocks?agent_id=%s", host, agentID),
+		"text/plain",
+		strings.NewReader(sb.String()))
+	if err != nil {
+		log.Printf("[gococo] register blocks failed: %v", err)
+		return
+	}
+	resp.Body.Close()
+	log.Printf("[gococo] registered block metadata with server")
 }
 
 func streamEvents(host string, agentID string) error {

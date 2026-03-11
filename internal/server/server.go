@@ -67,6 +67,7 @@ func (s *Server) Run() error {
 func (s *Server) routes() {
 	// Internal API (for instrumented binaries)
 	s.mux.HandleFunc("/api/internal/register", s.handleRegister)
+	s.mux.HandleFunc("/api/internal/register-blocks", s.handleRegisterBlocks)
 	s.mux.HandleFunc("/api/internal/events", s.handleEvents)
 
 	// Public API (for UI)
@@ -101,6 +102,55 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprint(w, id)
+}
+
+// handleRegisterBlocks receives all block metadata from an agent at startup.
+// This allows the server to know about ALL blocks (including uncovered ones).
+// Format: file|blockIdx|startLine|startCol|endLine|endCol|numStmts per line.
+func (s *Server) handleRegisterBlocks(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "POST required", http.StatusMethodNotAllowed)
+		return
+	}
+
+	scanner := bufio.NewScanner(r.Body)
+	count := 0
+	s.mu.Lock()
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "|", 7)
+		if len(parts) != 7 {
+			continue
+		}
+		file := parts[0]
+		blockIdx, _ := strconv.Atoi(parts[1])
+		sl, _ := strconv.Atoi(parts[2])
+		sc, _ := strconv.Atoi(parts[3])
+		el, _ := strconv.Atoi(parts[4])
+		ec, _ := strconv.Atoi(parts[5])
+		stmts, _ := strconv.Atoi(parts[6])
+
+		key := fmt.Sprintf("%s:%d", file, blockIdx)
+		if _, exists := s.blockStates[key]; !exists {
+			s.blockStates[key] = &blockState{
+				File:      file,
+				BlockIdx:  blockIdx,
+				StartLine: sl,
+				StartCol:  sc,
+				EndLine:   el,
+				EndCol:    ec,
+				NumStmts:  stmts,
+			}
+			count++
+		}
+	}
+	s.mu.Unlock()
+
+	log.Printf("[gococo] registered %d blocks from agent", count)
+	w.WriteHeader(http.StatusOK)
 }
 
 // handleEvents receives a chunked stream of coverage events from an agent.

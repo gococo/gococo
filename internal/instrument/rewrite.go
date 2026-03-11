@@ -209,8 +209,8 @@ func (rw *rewriter) addCounter(start, end, insertAt token.Pos, numStmts int) {
 		NumStmts:  numStmts,
 	})
 
-	counter := fmt.Sprintf("GococoCov_%s[%d]++; GococoEmit_%s(%d, %d);",
-		rw.randomID, idx, rw.randomID, rw.fileIdx, idx)
+	counter := fmt.Sprintf("GococoCov_%s_%d[%d]++; GococoEmit_%s(%d, %d);",
+		rw.randomID, rw.fileIdx, idx, rw.randomID, rw.fileIdx, idx)
 
 	offset := rw.fset.Position(insertAt).Offset
 	rw.insertions = append(rw.insertions, insertion{offset: offset, text: counter})
@@ -378,8 +378,8 @@ func BuildGlobalCoverVarDecl(files []*FileInstrumentation, randomID string) stri
 			continue
 		}
 
-		// Exported counter array (accessed via dot import)
-		b.WriteString(fmt.Sprintf("var GococoCov_%s [%d]uint32 // %s\n", randomID, nblocks, fi.FilePath))
+		// Exported counter array (accessed via dot import), unique per file
+		b.WriteString(fmt.Sprintf("var GococoCov_%s_%d [%d]uint32 // %s\n", randomID, i, nblocks, fi.FilePath))
 
 		// Unexported metadata (accessed via exported BlockMeta function)
 		b.WriteString(fmt.Sprintf("var gococoMeta_%s_%d = struct {\n", randomID, i))
